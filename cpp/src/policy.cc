@@ -3,8 +3,35 @@
 #include <queue>
 #include <cassert>
 
-static std::queue<int> ReadyTasks;
-static std::queue<int> BlockedTasks;
+struct priority_task{
+  Event::Task task;
+  int score; // 分数越高，优先级越高
+  priority_task(const Event::Task t, int sc){
+    task = t;
+    score = sc;
+  }
+
+  bool operator < (const priority_task& p_task) const{
+    return score < p_task.score; //大顶堆
+  }
+};
+
+int cal_score(const Event::Task task, int time){
+  int rest_time = task.deadline - time;
+  int priority_factor = 0;
+  if(task.priority == Event::Task::Priority::kHigh){
+    priority_factor = 1000;
+  }
+  else if(task.priority == Event::Task::Priority::kLow){
+    priority_factor = 200;
+  }
+  return priority_factor - rest_time;
+}
+
+static std::priority_queue<priority_task> ReadyTasks;
+static std::priority_queue<priority_task> BlockedTasks;
+
+static Event::Task curr_cpu_info;
 
 Action policy(const std::vector<Event>& events, int current_cpu, int current_io) {
 
@@ -29,8 +56,7 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
 
 
 
-
-  //Round-Robin
+  //Priority Queue
   int cpu = current_cpu;
   int io = current_io;
   Action act;
@@ -38,15 +64,19 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
   for(unsigned int i = 0; i< events.size();i++){
 
     //0. 时钟中断
-    
     if(events[i].type == Event::Type::kTimer){
       //如果当前cpu中有任务
       if(current_cpu){
-        ReadyTasks.push(current_cpu);
+        int score = cal_score(curr_cpu_info, events[i].time);
+
+        ReadyTasks.push(priority_task(curr_cpu_info, score));
+        
+
         //printf("ReadyTask: %d\n", ReadyTasks.front());
         //如果就绪队列不为空
         if(ReadyTasks.empty() == 0){
-          cpu = ReadyTasks.front();
+          cpu = ReadyTasks.top().task.taskId;
+          curr_cpu_info = ReadyTasks.top().task;
           //printf("cpu: %d\n", cpu);
           ReadyTasks.pop();
         }
@@ -54,20 +84,19 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
           cpu = 0;
         }
       }
-      
     }
     
-
-
     //1.任务到达
     if(events[i].type == Event::Type::kTaskArrival){
       //如果上一个任务没在运行
       if(current_cpu == 0){
         cpu = events[i].task.taskId;
+        //保存当前cpu信息
+        curr_cpu_info = events[i].task;
       }
       //如果cpu中有任务
       else{
-       ReadyTasks.push(events[i].task.taskId);
+       ReadyTasks.push(priority_task(events[i].task, cal_score(events[i].task, events[i].time)));
       }
     }
 
@@ -77,7 +106,9 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
       //如果就绪队列不为空
       if(cpu == 0){
         if(!ReadyTasks.empty()){
-          cpu = ReadyTasks.front();
+          cpu = ReadyTasks.top().task.taskId;
+          //保存当前cpu信息
+          curr_cpu_info = ReadyTasks.top().task;
           ReadyTasks.pop();
         }
         else{
@@ -91,7 +122,9 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
       //如果readytasks不为空, 并且将Ready队列中的下一个task放入CPU
       if(cpu == 0){
         if(!ReadyTasks.empty()){
-          cpu = ReadyTasks.front();
+          cpu = ReadyTasks.top().task.taskId;
+          //保存当前cpu信息
+          curr_cpu_info = ReadyTasks.top().task;
           ReadyTasks.pop();
         }
         //否则cpu空闲
@@ -107,7 +140,7 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
       }
       //不空闲时，放入阻塞队列
       else{
-        BlockedTasks.push(events[i].task.taskId);
+        BlockedTasks.push(priority_task(events[i].task, cal_score(events[i].task, events[i].time)));
       }
     }
 
@@ -118,7 +151,7 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
       if(io == 0){
          //如果Blocked队列未空，则取Block队列中的下一个task放入io
         if(!BlockedTasks.empty()){
-          io = BlockedTasks.front();
+          io = BlockedTasks.top().task.taskId;
           BlockedTasks.pop();
         }
         else{
@@ -129,10 +162,11 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
       //cpu资源空闲时
       if(cpu == 0){
         cpu = events[i].task.taskId;
+        curr_cpu_info = events[i].task;
       }
       //不空闲时，放入ready队列
       else{
-        ReadyTasks.push(events[i].task.taskId);
+        ReadyTasks.push(priority_task(events[i].task, cal_score(events[i].task, events[i].time)));
       }   
     }
     //if(events.size()>1 && !have_ktimer)printf("- event[%d]: next cpu: %d, next io: %d\n",i, cpu, io);
