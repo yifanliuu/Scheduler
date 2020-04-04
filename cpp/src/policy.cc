@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <queue>
 #include <cassert>
+#include <cmath>
 
-struct priority_task{
+struct priority_task
+{
   Event::Task task;
   int score; // 分数越高，优先级越高
   priority_task(const Event::Task t, int sc){
@@ -18,15 +20,21 @@ struct priority_task{
 
 int cal_score(const Event::Task task, int time){
   int rest_time = task.deadline - time;
+  int elapsed_time = time - task.arrivalTime;
   int priority_factor = 0;
+  //int score = 0;
   if(task.priority == Event::Task::Priority::kHigh){
-    priority_factor = 1000;
+    priority_factor = 7000;
   }
   else if(task.priority == Event::Task::Priority::kLow){
-    priority_factor = 200;
+    priority_factor = 3000;
   }
-  return priority_factor - rest_time;
+  if(rest_time <= 0){ //已经过时的任务
+    return - __INT32_MAX__;
+  }
+  return -rest_time + priority_factor-0.5 * elapsed_time;
 }
+
 
 static std::priority_queue<priority_task> ReadyTasks;
 static std::priority_queue<priority_task> BlockedTasks;
@@ -54,8 +62,6 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
   }
 */
 
-
-
   //Priority Queue
   int cpu = current_cpu;
   int io = current_io;
@@ -71,7 +77,6 @@ Action policy(const std::vector<Event>& events, int current_cpu, int current_io)
 
         ReadyTasks.push(priority_task(curr_cpu_info, score));
         
-
         //printf("ReadyTask: %d\n", ReadyTasks.front());
         //如果就绪队列不为空
         if(ReadyTasks.empty() == 0){
